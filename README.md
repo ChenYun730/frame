@@ -180,10 +180,12 @@ dds <- DESeq(dds)
 results <- results(dds, contrast = c("condition", "Virus", "Mock"))
 write.csv(as.data.frame(results), "/mnt/alamo01/users/chenyun730/sampledata/sars_cov_1/Calu-3_2B4/12H_MOI1_GSE255647/deseq2_results.csv")
 
-# 6. 数据转换（rlog用于下游可视化）----------------------------------------
-rld <- rlog(dds, blind = FALSE)
+```
+3. 绘制火山图（使用EnhancedVolcano美化）
 
-# 7. 绘制火山图（使用EnhancedVolcano美化）---------------------------------
+```
+rld <- rlog(dds, blind = FALSE)  #数据转换（rlog用于下游可视化）
+
 volcano_plot <- EnhancedVolcano(
   results,
   lab = rownames(results),
@@ -191,7 +193,7 @@ volcano_plot <- EnhancedVolcano(
   y = 'pvalue',
   pCutoff = 0.05,
   FCcutoff = 1,
-  pointSize = 3.0,
+  pointSize = 2.0,
   labSize = 4.0,
   colAlpha = 0.7,
   legendPosition = 'right',
@@ -200,46 +202,87 @@ volcano_plot <- EnhancedVolcano(
   drawConnectors = TRUE,
   widthConnectors = 0.5,
   colConnectors = 'grey50',
-  title = 'Virus vs Mock (12H MOI1)',
-  subtitle = 'DESeq2 results',
+  title = 'Sars-Cov-1 vs Mock (12H MOI1)',
   caption = 'FC cutoff: 1; p-value cutoff: 0.05',
   gridlines.major = FALSE,
   gridlines.minor = FALSE
 ) +
   theme_minimal(base_size = 14) +
   scale_color_manual(values = c("grey30", "forestgreen", "royalblue", "red2"))
-
 ggsave("volcano.png", plot = volcano_plot, width = 10, height = 8, dpi = 300)
-
-# 8. 绘制热图（选取差异最显著的30个基因）---------------------------------
-top_genes <- head(order(results$padj), 30)
-mat <- assay(rld)[top_genes, ]
-
-# 美化热图
+```
+4. 绘制热图（选取差异最显著的30个基因）
+```
+norm_counts <- assay(rld)
+top_genes <- rownames(results)[order(results$padj)][1:30]
+annotation_col <- data.frame(
+  Condition = col_data$condition,
+  row.names = colnames(norm_counts)
+)
+heatmap_colors <- colorRampPalette(rev(brewer.pal(11, "RdBu")))(100)
 heatmap_plot <- pheatmap(
-  mat,
-  scale = "row",  # 按行标准化
+  norm_counts[top_genes, ],
+  scale = "row",
+  color = heatmap_colors,  # 使用预定义的颜色梯度
+  border_color = NA,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
   clustering_distance_rows = "euclidean",
   clustering_distance_cols = "euclidean",
   clustering_method = "complete",
-  border_color = NA,
-  color = colorRampPalette(rev(brewer.pal(11, "RdBu"))(100),
-  fontsize_row = 8,
-  fontsize_col = 10,
-  angle_col = 45,
-  main = "Top 30 Differentially Expressed Genes",
-  annotation_col = data.frame(0
-    Condition = sample_info$condition,
-    row.names = colnames(mat)
-  ),
+  annotation_col = annotation_col,
+  annotation_colors = ann_colors,
   show_rownames = TRUE,
-  treeheight_row = 20,
-  treeheight_col = 20
+  fontsize_row = 9,
+  fontsize_col = 10,
+  cellwidth = 40,
+  cellheight = 10,
+  angle_col = 45,
+  main = "Top 30 DEGs in Calu-3/2B4\n(12hpi, SARS-CoV-1 vs Mock)",
+  gaps_col = 3,
+  silent = FALSE
 )
-
-png("heatmap.png", width = 1200, height = 1000, res = 150)
+png(
+  "heatmap.png",
+  width = 8,  
+  height = 8,
+  units = "in",
+  res = 300 
+)
 print(heatmap_plot)
 dev.off()
-
-
-
+```
+5、meta.json
+```
+library(jsonlite)
+meta_info <- list(
+  experiment = list(
+    virus = "SARS-CoV-1",
+    cell_line = "Calu-3/2B4",  # 根据您的数据调整
+    infection_time = "12h",     # 根据您的MOI命名调整
+    MOI = "1.0",
+    replicates = 3,
+    control_condition = "Mock"
+  ),
+  data_source = list(
+    accession = "GSE147507",    # 根据您的数据调整
+    comparison = "SARS-CoV-1 infected vs Mock",
+    organism = "Homo sapiens",
+    reference = "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE147507"
+  ),
+  analysis = list(
+    tool = "DESeq2",
+    version = paste0("R-", R.version$major, ".", R.version$minor),
+    date = format(Sys.Date(), "%Y-%m-%d"),
+    parameters = list(
+      pvalue_cutoff = 0.05,
+      log2fc_cutoff = 1,
+      normalization = "rlog")))
+output_file <- "/mnt/alamo01/users/chenyun730/sampledata/sars_cov_1/Calu-3_2B4/12H_MOI1_GSE255647/meta_analysis_info.json"
+write_json(
+  meta_info,
+  path = output_file,
+  pretty = TRUE,
+  auto_unbox = TRUE  # 自动解包单元素向量
+)
+```
