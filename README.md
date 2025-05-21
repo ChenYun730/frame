@@ -286,3 +286,123 @@ write_json(
   auto_unbox = TRUE  # 自动解包单元素向量
 )
 ```
+批量处理的模板：
+```
+
+setwd("/mnt/alamo01/users/chenyun730/sampledata/sars_cov_2/Calu-3_2B4/12H_MOI1_GSE255647/")
+count_data <- read.csv("expression_matrix.csv", row.names = 1, check.names = FALSE)
+head(count_data)
+
+col_data <- data.frame(
+  condition = factor(rep(c("Mock", "Virus"), each = 3)),
+  row.names = colnames(count_data)
+)
+dds <- DESeqDataSetFromMatrix(
+  countData = count_data,
+  colData = col_data,
+  design = ~ condition
+)
+dds <- dds[rowSums(counts(dds)) >= 10, ]
+dds <- DESeq(dds)
+results <- results(dds, contrast = c("condition", "Virus", "Mock"))
+write.csv(as.data.frame(results), "deseq2_results.csv")
+
+rld <- rlog(dds, blind = FALSE)
+volcano_plot <- EnhancedVolcano(
+  results,
+  lab = rownames(results),
+  x = 'log2FoldChange',
+  y = 'pvalue',
+  pCutoff = 0.05,
+  FCcutoff = 1,
+  pointSize = 2.0,
+  labSize = 4.0,
+  colAlpha = 0.7,
+  legendPosition = 'right',
+  legendLabSize = 12,
+  legendIconSize = 4.0,
+  drawConnectors = TRUE,
+  widthConnectors = 0.5,
+  colConnectors = 'grey50',
+  title = 'SARS-CoV-2 vs Mock (12H MOI1)',
+  caption = 'FC cutoff: 1; p-value cutoff: 0.05',
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE
+) +
+  theme_minimal(base_size = 14) +
+  scale_color_manual(values = c("grey30", "forestgreen", "royalblue", "red2"))
+ggsave("volcano.png", plot = volcano_plot, width = 10, height = 8, dpi = 300)
+
+norm_counts <- assay(rld)
+top_genes <- rownames(results)[order(results$padj)][1:30]
+annotation_col <- data.frame(
+  Condition = col_data$condition,
+  row.names = colnames(norm_counts)
+)
+
+ann_colors <- list(Condition = c(Mock = "#66C2A5", Virus = "#FC8D62"))
+heatmap_colors <- colorRampPalette(rev(brewer.pal(11, "RdBu")))(100)
+heatmap_plot <- pheatmap(
+  norm_counts[top_genes, ],
+  scale = "row",
+  color = heatmap_colors,
+  border_color = NA,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method = "complete",
+  annotation_col = annotation_col,
+  annotation_colors = ann_colors,
+  show_rownames = TRUE,
+  fontsize_row = 9,
+  fontsize_col = 10,
+  cellwidth = 40,
+  cellheight = 10,
+  angle_col = 45,
+  main = "Top 30 DEGs in Calu-3/2B4\n(12hpi, SARS-CoV-2 vs Mock)",
+  gaps_col = 3,
+  silent = FALSE
+)
+
+png(
+  "heatmap.png",
+  width = 8,
+  height = 8,
+  units = "in",
+  res = 300
+)
+print(heatmap_plot)  
+dev.off()
+
+meta_info <- list(
+  experiment = list(
+    virus = "SARS-CoV-2",
+    cell_line = "Calu-3/2B4", 
+    infection_time = "12h", 
+    MOI = "1.0",
+    replicates = 3,
+    control_condition = "Mock"
+  ),
+  data_source = list(
+    accession = "GSE255647", 
+    comparison = "SARS-CoV-2 infected vs Mock",
+    organism = "Homo sapiens",
+    reference = "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE255647"
+  ),
+  analysis = list(
+    tool = "DESeq2",
+    version = paste0("R-", R.version$major, ".", R.version$minor),
+    date = format(Sys.Date(), "%Y-%m-%d"),
+    parameters = list(
+      pvalue_cutoff = 0.05,
+      log2fc_cutoff = 1,
+      normalization = "rlog")))
+output_file <- "meta_analysis_info.json"
+write_json(
+  meta_info,
+  path = output_file,
+  pretty = TRUE,
+  auto_unbox = TRUE
+)
+```
