@@ -286,7 +286,7 @@ write_json(
   auto_unbox = TRUE  # 自动解包单元素向量
 )
 ```
-批量处理的模板：
+5、批量处理的模板：
 ```
 
 setwd("/mnt/alamo01/users/chenyun730/sampledata/sars_cov_2/Calu-3_2B4/12H_MOI1_GSE255647/")
@@ -407,3 +407,45 @@ write_json(
   auto_unbox = TRUE
 )
 ```
+6、修改deseq2_results.csv第一列名为Symbol，保留三位小数，"pvalue"和"padj"为三位有效数字，小于0.001的采用科学计数法，NA记为1(批量处理）
+```
+library(tidyverse)
+root_dir <- "/mnt/alamo01/users/chenyun730/sampledata"
+csv_files <- list.files(
+  path = root_dir,
+  pattern = "deseq2_results\\.csv$",
+  recursive = TRUE,  
+  full.names = TRUE 
+)
+format_pvalue <- function(x) {
+  ifelse(
+    is.na(x), 
+    "1",  
+    ifelse(
+      x < 0.001,
+      formatC(x, format = "e", digits = 2),  
+      as.character(signif(x, digits = 3))  
+    )
+  )
+}
+process_csv <- function(input_file) {
+  data <- read.csv(input_file, row.names = 1, check.names = FALSE)
+  data <- data %>% 
+    rownames_to_column(var = "Symbol") %>%
+    mutate(across(where(is.numeric) & !c(pvalue, padj), ~ round(., digits = 3)))
+
+  data <- data %>%
+    mutate(
+      pvalue = format_pvalue(pvalue),
+      padj = format_pvalue(padj)
+    )
+   output_file <- file.path(dirname(input_file), "DEG_results.csv")
+  write.csv(data, output_file, row.names = FALSE, quote = FALSE)
+  
+  message("Processed: ", input_file)
+}
+purrr::walk(csv_files, process_csv)
+message("All files processed!")
+```
+
+
