@@ -378,6 +378,7 @@ dev.off()
 meta_info <- list(
   experiment = list(
     virus = "SARS-CoV-2",
+    type = "RNA virus",
     cell_line = "Calu-3/2B4", 
     infection_time = "12h", 
     MOI = "1.0",
