@@ -447,5 +447,232 @@ process_csv <- function(input_file) {
 purrr::walk(csv_files, process_csv)
 message("All files processed!")
 ```
+7.pca分析
+```
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
 
+root_dir <- "sampledata"
+deg_files <- list.files(root_dir, pattern = "DEG_results\\.csv$", 
+                       recursive = TRUE, full.names = TRUE)
+sci_colors <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00")
+
+perform_pca <- function(deg_path) {
+  dir_path <- dirname(deg_path)
+  
+  tryCatch({
+    count_data <- read.csv(file.path(dir_path, "expression_matrix.csv"), 
+                          row.names = 1, check.names = FALSE)
+    
+    # 替代edgeR的过滤方法
+    keep <- rowSums(count_data > 10) >= ncol(count_data)/2
+    count_data <- count_data[keep, ]
+    
+    samples <- colnames(count_data)
+    groups <- ifelse(grepl("mock", samples, ignore.case = TRUE), "Mock", "Virus")
+    
+    if(length(unique(groups)) != 2) {
+      message("跳过 ", dir_path, "：未检测到Mock/Virus两组")
+      return()
+    }
+    
+    pca_result <- prcomp(t(log2(count_data + 1)), scale. = TRUE)
+    pca_df <- data.frame(
+      PC1 = pca_result$x[, 1],
+      PC2 = pca_result$x[, 2],
+      Group = groups,
+      Sample = samples
+    )
+    
+    var_explained <- round(100 * pca_result$sdev^2/sum(pca_result$sdev^2), 1)
+    
+    p <- ggplot(pca_df, aes(x = PC1, y = PC2, color = Group)) +
+      geom_point(size = 4, shape = 16, alpha = 0.8) +
+      scale_color_manual(values = sci_colors) +
+      labs(x = paste0("PC1 (", var_explained[1], "%)"),
+           y = paste0("PC2 (", var_explained[2], "%)")) +
+      theme_bw(base_size = 14)
+    
+    if(ncol(count_data) <= 10) p <- p + geom_text_repel(aes(label = Sample), size = 3)
+    
+    ggsave(file.path(dir_path, "PCA_Plot.png"), p, width = 7, height = 5, dpi = 300)
+    message("成功生成: ", file.path(dir_path, "PCA_Plot.png"))
+    
+  }, error = function(e) {
+    message(dir_path, " 处理失败: ", e$message)
+  })
+}
+
+purrr::walk(deg_files, perform_pca)
+message("\n处理完成！成功处理 ", 
+       sum(grepl("成功生成", sapply(deg_files, function(x) tryCatch(perform_pca(x), error=function(e) NA)))), 
+       "/", length(deg_files), " 个数据集")
+```
+8.修改
+```
+#1. 火山图：使用adj p可视化；右下角的FC cutoff改为2，p-value改为adjusted p-value；
+library(DESeq2)
+library(EnhancedVolcano)
+
+root_dir <- "/mnt/alamo01/users/chenyun730/sampledata"
+expr_files <- list.files(root_dir, 
+                        pattern = "expression_matrix\\.csv$",
+                        recursive = TRUE,
+                        full.names = TRUE)
+
+process_file <- function(input_file) {
+  count_data <- read.csv(input_file, row.names = 1, check.names = FALSE)
+  samples <- colnames(count_data)
+  n_mock <- ceiling(length(samples)/2)
+  col_data <- data.frame(
+    condition = factor(c(rep("Mock", n_mock), 
+                      rep("Infected", length(samples)-n_mock))),
+    row.names = samples
+  )
+  dds <- DESeqDataSetFromMatrix(countData = count_data,
+                               colData = col_data,
+                               design = ~ condition)
+  dds <- dds[rowSums(counts(dds)) >= 10, ]
+  dds <- DESeq(dds)
+  res <- results(dds, contrast = c("condition", "Infected", "Mock"))
+  res_df <- as.data.frame(res)
+
+  volcano_plot <- EnhancedVolcano(
+    res_df,
+    lab = rownames(res_df),
+    x = "log2FoldChange",
+    y = "padj",
+    pCutoff = 0.05,
+    FCcutoff = 1,  # 这里1对应log2FC=1，即FC=2
+    title = paste("Volcano Plot -", basename(dirname(input_file))),
+    caption = "FC cutoff=2, padj cutoff: 0.05",
+    pointSize = 2.0,
+    labSize = 3.0,
+    colAlpha = 0.7,
+    legendPosition = "right",
+    legendLabSize = 12,
+    legendIconSize = 4.0,
+    drawConnectors = TRUE,
+    widthConnectors = 0.5,
+    colConnectors = 'grey50',
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    legendLabels = c(
+      "Not significant",
+      "Log2 FC",
+      "padj",          # 修改这里：原为"p-value"
+      "padj & Log2 FC" # 修改这里：原为"p-value & Log2 FC"
+    )
+  ) + 
+    theme_minimal()
+  output_dir <- dirname(input_file)
+  ggsave(
+    file.path(output_dir, "volcano_plot.png"),
+    plot = volcano_plot,
+    width = 8,
+    height = 6,
+    dpi = 300
+  )
+  message("Generated volcano plot for: ", basename(dirname(input_file)))
+}
+invisible(lapply(expr_files, process_file))
+
+#2. PCA图：group改为Mock 和 Infected；点不要加Label了
+root_dir <- "/mnt/alamo01/users/chenyun730/sampledata"
+rld_files <- list.files(root_dir, 
+                       pattern = "rld_results\\.csv$",
+                       recursive = TRUE,
+                       full.names = TRUE)
+
+sci_colors <- c("#E69F00", "#56B4E9") 
+
+perform_pca <- function(rld_file) {
+
+  rld_data <- read.csv(rld_file, row.names = 1, check.names = FALSE)
+  samples <- colnames(rld_data)
+  
+  n_mock <- length(samples)/2
+  groups <- factor(c(rep("Mock", n_mock), 
+                   rep("Infected", n_mock)))
+  pca_data <- prcomp(t(rld_data), scale. = TRUE)
+  pca_df <- data.frame(
+    PC1 = pca_data$x[,1],
+    PC2 = pca_data$x[,2],
+    Group = groups
+  )
+  var_explained <- round(100 * pca_data$sdev^2/sum(pca_data$sdev^2), 1)
+  
+  p <- ggplot(pca_df, aes(x = PC1, y = PC2, color = Group)) +
+    geom_point(size = 4, shape = 16, alpha = 0.8) + 
+    scale_color_manual(values = sci_colors) +
+    labs(
+      x = paste0("PC1 (", var_explained[1], "%)"),
+      y = paste0("PC2 (", var_explained[2], "%)"),
+      color = "Condition"
+    ) +
+    theme_bw(base_size = 14) +
+    theme(
+      panel.grid = element_blank(),
+      legend.position = "right",
+      aspect.ratio = 1, 
+      plot.title = element_text(hjust = 0.5)
+    ) +
+    ggtitle("PCA Analysis of Normalized Gene Expression")
+
+  output_file <- file.path(dirname(rld_file), "PCA.png")
+  ggsave(output_file, p, width = 6, height = 5, dpi = 300, bg = "white")
+  message("Generated: ", output_file)
+}
+
+if (!require("progress")) install.packages("progress")
+library(progress)
+
+pb <- progress_bar$new(total = length(rld_files))
+invisible(lapply(rld_files, function(x) {
+  perform_pca(x)
+  pb$tick()
+}))
+
+message("\nAll PCA plots generated successfully!")
+
+#3. 提供rlog或vst处理后的矩阵，提供矩阵样本名和组别对应的meta信息，组别的名字也是Mock和Infected
+library(DESeq2)
+root_dir <- "sampledata"
+expr_files <- list.files(root_dir, 
+                        pattern = "expression_matrix\\.csv$",
+                        recursive = TRUE,
+                        full.names = TRUE)
+
+process_file <- function(input_file) {
+  count_data <- read.csv(input_file, row.names = 1, check.names = FALSE)
+  samples <- colnames(count_data)
+  n_mock <- ceiling(length(samples)/2)    # 自动分组（假设前一半是Mock，后一半是Infected）
+  col_data <- data.frame(
+    condition = factor(c(rep("Mock", n_mock), 
+                      rep("Infected", length(samples)-n_mock))),
+    row.names = samples
+  )
+  dds <- DESeqDataSetFromMatrix(countData = count_data,
+                               colData = col_data,
+                               design = ~ condition)
+  dds <- dds[rowSums(counts(dds)) >= 10, ]
+  dds <- DESeq(dds)
+  rld <- rlog(dds, blind = FALSE)
+
+  output_dir <- dirname(input_file)
+  write.csv(as.data.frame(assay(rld)), 
+            file.path(output_dir, "rld_results.csv"))
+
+  group_info <- list(
+    Mock = samples[1:n_mock],
+    Infected = samples[(n_mock+1):length(samples)]
+  )
+  jsonlite::write_json(group_info, 
+                      file.path(output_dir, "meta_rld_info.json"))
+}
+
+lapply(expr_files, process_file)
+
+```
 
