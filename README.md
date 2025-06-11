@@ -675,4 +675,75 @@ process_file <- function(input_file) {
 lapply(expr_files, process_file)
 
 ```
+0611 重新下载原始数据进行比对获得gene_count_matrix.csv,画图比较差异
+```
+#一种新的R包安装方法（R中）：
+options(repos = c(CRAN = "https://mirrors.tuna.tsinghua.edu.cn/CRAN/"))
+install.packages("ggfortify")
+
+#比对脚本为rna0610.sh
+library(dplyr)
+library(DESeq2)
+library(tibble)
+library(EnhancedVolcano)
+library(ggplot2)
+library(cowplot)
+
+ count.mtx <- read.csv("gene_count_matrix.csv")
+count.mtx$symbol <- apply(count.mtx,1,function(x) strsplit(x,"\\|")[[1]][2])
+count.mtx <- na.omit(count.mtx)
+gene_matrix <- count.mtx %>%
+  group_by(symbol) %>%
+  summarise(across(starts_with("SRR"), sum)) %>%
+  as.data.frame()
+ rownames(gene_matrix) <- gene_matrix$symbol
+gene_matrix <- gene_matrix[,-1]
+sample_info <- data.frame(
+  row.names = colnames(gene_matrix),
+  condition = c("Mock", "Mock", "Mock", "SARS2_12hpi_1MOI_Calu3_2B4", "SARS2_12hpi_1MOI_Calu3_2B4", "SARS2_12hpi_1MOI_Calu3_2B4")
+)
+
+sample_info$condition <- factor(sample_info$condition, levels = c("SARS2_12hpi_1MOI_Calu3_2B4","Mock"))
+
+dds <- DESeqDataSetFromMatrix(countData = gene_matrix,  # DESeq2要求整数
+                              colData = sample_info,
+                              design = ~ condition)
+keep <- rowSums(counts(dds) >=10) >= ncol(dds)/2
+dds <- dds[keep,]
+dim(dds)
+dds <- DESeq(dds)
+res <- results(dds)
+res <- lfcShrink(dds,coef = 2,res = res)
+summary(res)
+
+res_df <- as.data.frame(res)
+res_df <- res_df[order(res_df$padj), ]
+volcano_plot <- EnhancedVolcano(
+  res_df,
+  lab = rownames(res_df),
+  x = 'log2FoldChange',
+  y = 'padj',
+  pCutoff = 0.05,
+  FCcutoff = 1,
+  pointSize = 2.0,
+  labSize = 4.0,
+  colAlpha = 0.7,
+  legendPosition = 'right',
+  legendLabSize = 12,
+  legendIconSize = 4.0,
+  drawConnectors = TRUE,
+  widthConnectors = 0.5,
+  colConnectors = 'grey50',
+  title = 'Sars-Cov-2 vs Mock (12H MOI1)',
+  caption = 'FC cutoff: 1; p-value cutoff: 0.05',
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE
+) +
+  theme_minimal(base_size = 14) +
+  scale_color_manual(values = c("grey30", "forestgreen", "royalblue", "red2"))
+ggsave("volcano.png", plot = volcano_plot, width = 10, height = 8, dpi = 300)
+
+
+
+
 
