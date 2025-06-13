@@ -747,6 +747,13 @@ ggsave("volcano.png", plot = volcano_plot, width = 10, height = 8, dpi = 300)
 0613 下载原始数据
 ```
 #修改脚本开头的环境设置（以24h_MOI1为例）
+#下载：
+micromamba activate R441
+micromamba install -c bioconda entrez-direct -y
+micromamba install -c conda-forge parallel -y
+micromamba install -c conda-forge pigz -y
+which esearch efetch elink xtract parallel fasterq-dump pigz
+
 #!/bin/bash
 export PATH=/mnt/alamo01/users/chenyun730/micromamba/envs/sra-tools/bin/:$PATH
 echo "GSM8076545 GSM8076546 GSM8076547 GSM8076554 GSM8076555 GSM8076556" | \
