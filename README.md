@@ -677,6 +677,7 @@ lapply(expr_files, process_file)
 ```
 0611 重新下载原始数据进行比对获得gene_count_matrix.csv,画图比较差异
 ```
+#脚本来源于wsy
 #一种新的R包安装方法（R中）：
 options(repos = c(CRAN = "https://mirrors.tuna.tsinghua.edu.cn/CRAN/"))
 install.packages("ggfortify")
@@ -742,8 +743,36 @@ volcano_plot <- EnhancedVolcano(
   theme_minimal(base_size = 14) +
   scale_color_manual(values = c("grey30", "forestgreen", "royalblue", "red2"))
 ggsave("volcano.png", plot = volcano_plot, width = 10, height = 8, dpi = 300)
+```
+0613 下载原始数据
+```
+#修改脚本开头的环境设置（以24h_MOI1为例）
+#!/bin/bash
+export PATH=/mnt/alamo01/users/chenyun730/micromamba/envs/sra-tools/bin/:$PATH
+echo "GSM8076545 GSM8076546 GSM8076547 GSM8076554 GSM8076555 GSM8076556" | \
+while read gsm; do
+    esearch -db gds -query "$gsm" | \
+    elink -target sra | \
+    efetch -format docsum | \
+    xtract -pattern DocumentSummary -element Run@acc
+done > sra_ids.txt
+OUTDIR="/mnt/alamo01/users/chenyun730/download_data/GSE255647/SARS-CoV-2/Calu-3_2B4/24H_MOI1"
+SRAS=($(cat sra_ids.txt))
+download_fastq() {
+    local sra="$1"
+    echo ">>> Downloading $sra..."
+fasterq-dump --split-files --threads 4 --outdir "$OUTDIR" "$sra"
+pigz -p 4 "$OUTDIR/${sra}_1.fastq" "$OUTDIR/${sra}_2.fastq"
+echo ">>> $sra completed!"
+}
+export -f download_fastq
+export OUTDIR
+parallel -j 2 download_fastq {} "$OUTDIR" ::: "${SRAS[@]}"
 
+echo "All downloads completed! Files stored in: $OUTDIR"
 
-
+#提交脚本，biohpc052该节点连接了外网（可变）
+ qsub -cwd -V -l cpu=64:mem=64G:h=biohpc052 -q fast -N download data0613.sh
+```
 
 
