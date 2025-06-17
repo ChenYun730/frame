@@ -9,7 +9,7 @@ data/
 |   |   |   |—— deseq2_results.csv
 │   │   │   ├── volcano.png
 │   │   │   ├── heatmap.png
-│   │   │   └── meta.json(暂时不做）
+│   │   │   └── meta.json
 │   │   ├── 48h_MOI1.0_GSE123789/
 │   │   │   └── ...
 │   └── THP-1/
